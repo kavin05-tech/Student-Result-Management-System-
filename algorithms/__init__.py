@@ -1,1 +1,2 @@
-"""Hand-written algorithms used by the application."""
+"""Grading and statistics helpers used by the application."""
+

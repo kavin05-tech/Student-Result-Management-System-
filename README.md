@@ -75,7 +75,7 @@ This adds three fictional students, three subjects, marks, and attendance. If an
 1. Add a student in **Students** and a subject in **Subjects**.
 2. Use **Marks & Attendance** to select them and save marks and attendance from 0–100.
 3. Select a student in **Students** and click **Generate Report**. Use the report window to export a PDF.
-4. Search by name, roll number, or department. **Binary Roll Search** performs an exact roll-number lookup.
+4. Search students by name, roll number, or department; SQLite performs filtering and sorting.
 5. Open **Dashboard** and refresh to view statistics and rankings.
 
 To generate chart files separately, run this from the repository root:
@@ -107,7 +107,7 @@ Charts are saved under `reports/`. Local reports and database files are ignored 
 | `models.py` | Student, Subject, Marks, and Attendance dataclasses |
 | `report_generator.py` | Text report rendering and PDF export |
 | `statistics_manager.py` | Performance chart generation |
-| `algorithms/` | Search, sorting, grading, and statistics helpers |
+| `algorithms/` | Grading and statistics helpers |
 | `sample_data.py` | Optional fictional demo records |
 | `utils.py` | Application-relative paths and report directory creation |
 | `requirements.txt` | Third-party dependencies |
@@ -138,11 +138,9 @@ Foreign keys are enabled. Deleting a student or subject cascades to its dependen
 - Rankings do not separate semesters or account for different subject sets. Attendance is displayed but does not affect pass/fail.
 - This is a local desktop application; authentication and a web API are future improvements.
 
-## Algorithms
+## SQL queries
 
-Custom linear search supports partial, case-insensitive student lookup. Exact roll-number lookup uses binary search after sorting with bubble sort. Bubble sort also orders merit rankings.
-
-These implementations support learning and small datasets. Bubble sorting has quadratic worst-case time complexity; this project does not claim large-scale performance.
+Student search, ordering, and merit rankings use parameterized SQLite queries and SQL `ORDER BY`.
 
 ## Suggested improvements
 
@@ -150,4 +148,25 @@ These implementations support learning and small datasets. Bubble sorting has qu
 - Use consistent result rules across reports and dashboards.
 - Add transaction handling for related marks and attendance writes.
 - Add automated tests and stronger field validation.
-- Add CSV import/export and database backups.
+- Add CSV export and database backups.
+
+## CSV imports
+
+Use **Import Students CSV** on the Students tab, **Import Subjects CSV** on the Subjects tab, and **Import Marks CSV** on the Marks & Attendance tab. Each button opens a CSV file picker for that data type. Import students and subjects before importing marks. Save files as UTF-8. Each file is imported transactionally: if a row is invalid or refers to a duplicate/missing record, the import rolls back and reports the row number.
+
+- Students: required headers `roll_no,name,department,semester`; optional `email,phone`.
+- Subjects: required headers `subject_code,subject_name,credits`.
+- Marks: required headers `roll_no,subject_code,internal_marks,external_marks,attendance_percentage`. Students and subjects must already exist. Marks and attendance are saved together.
+
+Headers must use these exact names. Example student file:
+
+```csv
+roll_no,name,department,semester,email,phone
+CSE001,Aisha Khan,Computer Science,1,aisha@example.com,5550101
+```
+
+
+Attendance can be viewed directly in the **Marks & Attendance** tab in the Recorded attendance table. Use **Refresh Attendance** after changes; saving marks or importing a marks CSV refreshes it automatically.
+
+The desktop interface uses a portal-style layout with a performance dashboard, searchable records, and a dedicated attendance table.
+
