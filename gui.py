@@ -13,6 +13,95 @@ from statistics_manager import StatisticsManager
 from utils import ensure_reports_dir
 
 
+class SmoothButton(tk.Button):
+    """A flat, softly animated button for the dark portal theme."""
+
+    PALETTES = {
+        "Primary.TButton": ("#2DD4BF", "#5EEAD4", "#07131D"),
+        "Danger.TButton": ("#3A202D", "#512936", "#F2A7B2"),
+        "TButton": ("#1B2940", "#293B58", "#D8E3F0"),
+    }
+
+    def __init__(self, master: tk.Misc, style: str = "TButton", **kwargs: object) -> None:
+        normal, hover, foreground = self.PALETTES.get(style, self.PALETTES["TButton"])
+        self._normal_color, self._hover_color, self._target_color = normal, hover, normal
+        self._animation_id: str | None = None
+        kwargs.setdefault("font", ("Segoe UI", 9, "bold"))
+        kwargs.setdefault("padx", 14)
+        kwargs.setdefault("pady", 9)
+        super().__init__(master, bg=normal, fg=foreground, activebackground=hover, activeforeground=foreground, disabledforeground="#687991", relief="flat", borderwidth=0, highlightthickness=1, highlightbackground="#263750", highlightcolor="#5EEAD4", cursor="hand2", **kwargs)
+        self.bind("<Enter>", self._on_enter, add="+")
+        self.bind("<Leave>", self._on_leave, add="+")
+
+    @staticmethod
+    def _rgb(color: str) -> tuple[int, int, int]:
+        return tuple(int(color[index:index + 2], 16) for index in (1, 3, 5))
+
+    def _animate(self) -> None:
+        self._animation_id = None
+        current = self._rgb(self.cget("background"))
+        target = self._rgb(self._target_color)
+        if current == target:
+            return
+        stepped = tuple(a + max(-18, min(18, b - a)) for a, b in zip(current, target))
+        self.configure(background="#%02x%02x%02x" % stepped)
+        self._animation_id = self.after(14, self._animate)
+
+    def _on_enter(self, _event: tk.Event) -> None:
+        self._target_color = self._hover_color
+        if self._animation_id is None:
+            self._animate()
+
+    def _on_leave(self, _event: tk.Event) -> None:
+        self._target_color = self._normal_color
+        if self._animation_id is None:
+            self._animate()
+
+
+def _bind_lift_on_hover(parent: tk.Misc, surface: tk.Frame, root: tk.Tk, distance: int = 4) -> None:
+    """Gently raise a layered card while the pointer is over any of its contents."""
+    state = {"offset": 0, "target": 0, "job": None}
+
+    def animate() -> None:
+        state["job"] = None
+        offset = int(state["offset"])
+        target = int(state["target"])
+        if offset == target:
+            return
+        offset += 1 if target > offset else -1
+        state["offset"] = offset
+        surface.place_configure(y=offset)
+        if offset != target:
+            state["job"] = root.after(14, animate)
+
+    def set_target(value: int) -> None:
+        state["target"] = value
+        if state["job"] is None:
+            animate()
+
+    def pointer_inside() -> bool:
+        widget = root.winfo_containing(root.winfo_pointerx(), root.winfo_pointery())
+        while widget is not None:
+            if widget == parent:
+                return True
+            parent_name = widget.winfo_parent()
+            widget = root.nametowidget(parent_name) if parent_name else None
+        return False
+
+    def entered(_event: tk.Event) -> None:
+        set_target(-distance)
+
+    def left(_event: tk.Event) -> None:
+        root.after(35, lambda: set_target(0) if not pointer_inside() else None)
+
+    pending = [parent]
+    while pending:
+        widget = pending.pop()
+        widget.bind("<Enter>", entered, add="+")
+        widget.bind("<Leave>", left, add="+")
+        pending.extend(widget.winfo_children())
+
+
 class LoginScreen:
     """First-run administrator setup and local sign-in screen."""
 
@@ -25,6 +114,7 @@ class LoginScreen:
         self.setup_mode = not controller.has_administrator()
         self.frame = tk.Frame(root, bg="#0B1220")
         self.frame.pack(fill="both", expand=True)
+        self.card_shadow = tk.Frame(self.frame, bg="#050A14")
         card = tk.Frame(self.frame, bg="#111B2C", highlightbackground="#263750", highlightthickness=1, padx=42, pady=38)
         card.place(relx=0.5, rely=0.48, anchor="center", width=460)
         tk.Label(card, text="CAMPUS  /  ACADEMIC SERVICES", bg="#111B2C", fg="#5EEAD4", font=("Segoe UI", 9, "bold")).pack(anchor="w")
@@ -37,13 +127,18 @@ class LoginScreen:
         self.password_entry = self._field(card, "PASSWORD", password=True)
         self.confirm_entry = self._field(card, "CONFIRM PASSWORD", password=True) if self.setup_mode else None
         action = "Create account and enter" if self.setup_mode else "Sign in"
-        tk.Button(card, text=action, command=self.submit, bg="#2DD4BF", fg="#07131D", activebackground="#5EEAD4", activeforeground="#07131D", relief="flat", cursor="hand2", font=("Segoe UI", 10, "bold"), padx=12, pady=12).pack(fill="x", pady=(12, 0))
+        SmoothButton(card, text=action, command=self.submit, style="Primary.TButton", padx=12, pady=12).pack(fill="x", pady=(12, 0))
         tk.Label(card, text="Your password is stored locally as a salted hash.", bg="#111B2C", fg="#62758F", font=("Segoe UI", 8)).pack(anchor="w", pady=(16, 0))
         self.login_entry.focus_set()
         self.login_entry.bind("<Return>", lambda _event: self.password_entry.focus_set())
         self.password_entry.bind("<Return>", lambda _event: self.confirm_entry.focus_set() if self.confirm_entry else self.submit())
         if self.confirm_entry:
             self.confirm_entry.bind("<Return>", lambda _event: self.submit())
+        card.update_idletasks()
+        card_height = card.winfo_reqheight()
+        self.card_shadow.place(relx=0.5, rely=0.48, anchor="center", x=8, y=9, width=460, height=card_height)
+        card.place_configure(height=card_height)
+        _bind_lift_on_hover(card, card, root, 4)
 
     @staticmethod
     def _field(parent: tk.Widget, label: str, password: bool = False) -> tk.Entry:
@@ -169,11 +264,12 @@ class ApplicationGUI:
         buttons.pack(fill="x")
         for label, command in [("Add Student", self.add_student), ("Update Student", self.update_student),
                                ("Delete Student", self.delete_student), ("Generate Report", self.show_report), ("Import Students CSV", lambda: self.import_csv("students")), ("Refresh", self.refresh_students)]:
-            ttk.Button(buttons, text=label, style=("Primary.TButton" if label == "Add Student" else "Danger.TButton" if label == "Delete Student" else "TButton"), command=lambda cmd=command: self._run(cmd)).pack(side="left", padx=(0, 8), pady=8)
+            style = "Primary.TButton" if label == "Add Student" else "Danger.TButton" if label == "Delete Student" else "TButton"
+            SmoothButton(buttons, text=label, style=style, command=lambda cmd=command: self._run(cmd)).pack(side="left", padx=(0, 8), pady=8)
         search = ttk.Frame(page); search.pack(fill="x", pady=4)
         self.search_query = ttk.Entry(search, width=26); self.search_query.pack(side="left", padx=3)
         self.search_field = ttk.Combobox(search, values=("name", "roll_no", "department"), state="readonly", width=14); self.search_field.set("name"); self.search_field.pack(side="left")
-        ttk.Button(search, text="Search", style="Primary.TButton", command=lambda: self._run(self.search_students)).pack(side="left", padx=3)
+        SmoothButton(search, text="Search", style="Primary.TButton", command=lambda: self._run(self.search_students)).pack(side="left", padx=3)
         columns = ("student_id", "roll_no", "name", "department", "semester", "email", "phone")
         self.student_tree = self._tree(page, columns, [80, 110, 170, 140, 90, 180, 130])
         self.student_tree.configure(height=7)
@@ -197,7 +293,7 @@ class ApplicationGUI:
         self.selected_subject_id: int | None = None
         for label, command in [("Add Subject", self.add_subject), ("Update Subject", self.update_subject), ("Delete Subject", self.delete_subject), ("Import Subjects CSV", lambda: self.import_csv("subjects")), ("Refresh", self.refresh_subjects)]:
             style = "Primary.TButton" if label == "Add Subject" else "Danger.TButton" if label == "Delete Subject" else "TButton"
-            ttk.Button(page, text=label, style=style, command=lambda cmd=command: self._run(cmd)).pack(side="left", padx=(0, 8), pady=5)
+            SmoothButton(page, text=label, style=style, command=lambda cmd=command: self._run(cmd)).pack(side="left", padx=(0, 8), pady=5)
         self.subject_tree = self._tree(page, ("subject_id", "subject_code", "subject_name", "credits"), [120, 180, 350, 120])
         self.subject_tree.configure(height=7)
         self.subject_tree.pack(fill="x", expand=False, pady=(10, 8))
@@ -220,14 +316,14 @@ class ApplicationGUI:
         for i, label in enumerate(("Internal (0-100)", "External (0-100)", "Attendance %")):
             ttk.Label(form, text=label).grid(row=1, column=i * 2, pady=8)
             entry = ttk.Entry(form, width=14); entry.grid(row=1, column=i * 2 + 1, padx=6, pady=8); self.mark_entries.append(entry)
-        ttk.Button(form, text="Save Marks", style="Primary.TButton", command=lambda: self._run(self.save_mark)).grid(row=2, column=0, columnspan=3, pady=6)
-        ttk.Button(form, text="Import Marks CSV", command=lambda: self._run(lambda: self.import_csv("marks"))).grid(row=2, column=3, columnspan=3, pady=6)
+        SmoothButton(form, text="Save Marks", style="Primary.TButton", command=lambda: self._run(self.save_mark)).grid(row=2, column=0, columnspan=3, pady=6)
+        SmoothButton(form, text="Import Marks CSV", command=lambda: self._run(lambda: self.import_csv("marks"))).grid(row=2, column=3, columnspan=3, pady=6)
         self.refresh_mark_choices()
         attendance_frame = ttk.LabelFrame(page, text="Recorded attendance", padding=12, style="Section.TLabelframe")
         attendance_frame.pack(fill="both", expand=True, pady=8)
         self.attendance_tree = self._tree(attendance_frame, ("roll_no", "name", "subject_code", "subject_name", "attendance_percentage"), [120, 190, 140, 300, 160])
         self.attendance_tree.pack(fill="both", expand=True)
-        ttk.Button(attendance_frame, text="Refresh Attendance", command=lambda: self._run(self.refresh_attendance)).pack(anchor="e", pady=4)
+        SmoothButton(attendance_frame, text="Refresh Attendance", command=lambda: self._run(self.refresh_attendance)).pack(anchor="e", pady=4)
         self.refresh_attendance()
 
     def _dashboard_tab(self) -> None:
@@ -235,19 +331,25 @@ class ApplicationGUI:
         ttk.Label(page, text="Academic Overview", style="Title.TLabel").pack(anchor="w", pady=(2, 2))
         ttk.Label(page, text="A snapshot of performance across current student records.", style="Subtitle.TLabel").pack(anchor="w")
         actions = ttk.Frame(page); actions.pack(anchor="w", pady=8)
-        ttk.Button(actions, text="Refresh Dashboard", command=lambda: self._run(self.refresh_dashboard)).pack(side="left")
-        ttk.Button(actions, text="Generate Charts", command=lambda: self._run(self.generate_charts)).pack(side="left", padx=5)
+        SmoothButton(actions, text="Refresh Dashboard", command=lambda: self._run(self.refresh_dashboard)).pack(side="left")
+        SmoothButton(actions, text="Generate Charts", command=lambda: self._run(self.generate_charts)).pack(side="left", padx=5)
         metrics = ttk.Frame(page, style="App.TFrame")
         metrics.pack(fill="x", pady=(8, 14))
         self.metric_values: dict[str, tk.Label] = {}
-        for index, (key, label, accent) in enumerate((("highest", "HIGHEST AVERAGE", "#2463A6"), ("average", "OVERALL AVERAGE", "#17846A"), ("pass_percentage", "PASS RATE", "#17846A"), ("fail_percentage", "FAIL RATE", "#B74550"), ("lowest", "LOWEST AVERAGE", "#B2762C"))):
-            card = tk.Frame(metrics, bg="#111B2C", highlightbackground="#263750", highlightthickness=1, padx=16, pady=12)
-            card.grid(row=0, column=index, sticky="nsew", padx=(0 if index == 0 else 7, 0))
+        for index, (key, label, accent) in enumerate((("highest", "HIGHEST AVERAGE", "#5EEAD4"), ("average", "OVERALL AVERAGE", "#93C5FD"), ("pass_percentage", "PASS RATE", "#5EEAD4"), ("fail_percentage", "FAIL RATE", "#FDA4AF"), ("lowest", "LOWEST AVERAGE", "#FCD34D"))):
+            shell = tk.Frame(metrics, bg="#0B1220", height=108)
+            shell.grid(row=0, column=index, sticky="nsew", padx=(0 if index == 0 else 8, 0))
+            shell.grid_propagate(False)
+            shadow = tk.Frame(shell, bg="#050A14")
+            shadow.place(x=6, y=7, relwidth=1, relheight=1, width=-12, height=-12)
+            card = tk.Frame(shell, bg="#142238", highlightbackground="#2B3D59", highlightthickness=1)
+            card.place(x=0, y=0, relwidth=1, relheight=1, width=-8, height=-8)
             metrics.columnconfigure(index, weight=1)
-            tk.Label(card, text=label, bg="#111B2C", fg="#8295AF", font=("Segoe UI", 8, "bold")).pack(anchor="w")
-            value = tk.Label(card, text="—", bg="#111B2C", fg=accent, font=("Segoe UI", 21, "bold"))
-            value.pack(anchor="w", pady=(5, 0))
+            tk.Label(card, text=label, bg="#142238", fg="#8295AF", font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=14, pady=(12, 0))
+            value = tk.Label(card, text="—", bg="#142238", fg=accent, font=("Segoe UI", 21, "bold"))
+            value.pack(anchor="w", padx=14, pady=(4, 8))
             self.metric_values[key] = value
+            _bind_lift_on_hover(shell, card, self.root, 4)
         self.rank_tree = self._tree(page, ("rank", "roll_no", "name", "department", "total_marks", "average", "cgpa"), [70, 120, 180, 150, 120, 120, 100])
         self.rank_tree.pack(fill="both", expand=True, pady=10)
         self.refresh_dashboard()
@@ -392,7 +494,7 @@ class ApplicationGUI:
             default = ensure_reports_dir() / f"report_{data['student']['roll_no']}.pdf"
             path = filedialog.asksaveasfilename(initialfile=default.name, initialdir=default.parent, defaultextension=".pdf", filetypes=[("PDF", "*.pdf")])
             if path: ReportGenerator().export_pdf(data, path); messagebox.showinfo("Exported", f"PDF saved to {path}")
-        ttk.Button(window, text="Export PDF", command=lambda: self._run(export)).pack(pady=6)
+        SmoothButton(window, text="Export PDF", style="Primary.TButton", command=lambda: self._run(export)).pack(pady=8)
 
     def refresh_dashboard(self) -> None:
         stats = self.controller.dashboard_statistics()

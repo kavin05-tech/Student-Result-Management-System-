@@ -171,5 +171,5 @@ CSE001,Aisha Khan,Computer Science,1,aisha@example.com,5550101
 
 Attendance can be viewed directly in the **Marks & Attendance** tab in the Recorded attendance table. Use **Refresh Attendance** after changes; saving marks or importing a marks CSV refreshes it automatically.
 
-The desktop interface uses a dark portal-style layout with a performance dashboard, searchable records, and student/subject detail tables. The administrator login is local to this database; passwords are stored as salted PBKDF2 hashes, not plain text. This is a local desktop application, not a hosted web portal, and it does not include password reset or multiple user roles.
+The desktop interface uses a dark portal-style layout with layered, softly lifting dashboard cards, animated button hover states, a performance dashboard, searchable records, and student/subject detail tables. The administrator login is local to this database; passwords are stored as salted PBKDF2 hashes, not plain text. This is a local desktop application, not a hosted web portal, and it does not include password reset or multiple user roles.
 
