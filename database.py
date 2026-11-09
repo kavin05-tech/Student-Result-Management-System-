@@ -49,6 +49,11 @@ class DatabaseManager:
                 FOREIGN KEY(student_id) REFERENCES students(student_id) ON DELETE CASCADE,
                 FOREIGN KEY(subject_id) REFERENCES subjects(subject_id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS administrator_accounts (
+                login_id TEXT PRIMARY KEY COLLATE NOCASE,
+                salt TEXT NOT NULL,
+                password_hash TEXT NOT NULL
+            );
         """)
         self.connection.commit()
 
@@ -69,3 +74,4 @@ class DatabaseManager:
 
     def close(self) -> None:
         self.connection.close()
+

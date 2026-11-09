@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import hmac
+import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -22,6 +25,31 @@ class Controller:
         if any(str(value).strip() == "" for value in values):
             raise ValueError("All required fields must be completed.")
 
+    def has_administrator(self) -> bool:
+        return self.db.fetch_one("SELECT login_id FROM administrator_accounts LIMIT 1") is not None
+
+    def create_administrator(self, login_id: str, password: str, confirmation: str) -> None:
+        login_id = login_id.strip()
+        self._require(login_id, password, confirmation)
+        if len(login_id) < 3:
+            raise ValueError("Login ID must contain at least 3 characters.")
+        if len(password) < 8:
+            raise ValueError("Password must contain at least 8 characters.")
+        if password != confirmation:
+            raise ValueError("The passwords do not match.")
+        if self.has_administrator():
+            raise ValueError("An administrator account already exists.")
+        salt = secrets.token_bytes(16)
+        password_hash = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 310_000).hex()
+        self.db.execute("INSERT INTO administrator_accounts(login_id,salt,password_hash) VALUES(?,?,?)", (login_id, salt.hex(), password_hash))
+
+    def authenticate(self, login_id: str, password: str) -> bool:
+        account = self.db.fetch_one("SELECT salt,password_hash FROM administrator_accounts WHERE login_id=? COLLATE NOCASE", (login_id.strip(),))
+        if not account:
+            return False
+        candidate = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(account["salt"]), 310_000).hex()
+        return hmac.compare_digest(candidate, account["password_hash"])
+
     def add_student(self, student: Student) -> int:
         self._require(student.roll_no, student.name, student.department, student.semester)
         return self.db.execute("INSERT INTO students(roll_no,name,department,semester,email,phone) VALUES(?,?,?,?,?,?)", (student.roll_no.strip(), student.name.strip(), student.department.strip(), student.semester, student.email, student.phone))
@@ -36,6 +64,9 @@ class Controller:
     def students(self) -> list[dict[str, Any]]:
         return self.db.fetch_all("SELECT * FROM students ORDER BY roll_no COLLATE NOCASE")
 
+    def student(self, student_id: int) -> dict[str, Any] | None:
+        return self.db.fetch_one("SELECT * FROM students WHERE student_id=?", (student_id,))
+
     def add_subject(self, subject: Subject) -> int:
         self._require(subject.subject_code, subject.subject_name, subject.credits)
         return self.db.execute("INSERT INTO subjects(subject_code,subject_name,credits) VALUES(?,?,?)", (subject.subject_code.strip(), subject.subject_name.strip(), subject.credits))
@@ -48,6 +79,25 @@ class Controller:
 
     def subjects(self) -> list[dict[str, Any]]:
         return self.db.fetch_all("SELECT * FROM subjects ORDER BY subject_code COLLATE NOCASE")
+
+    def subject(self, subject_id: int) -> dict[str, Any] | None:
+        return self.db.fetch_one("SELECT * FROM subjects WHERE subject_id=?", (subject_id,))
+
+    def subject_students(self, subject_id: int) -> list[dict[str, Any]]:
+        return self.db.fetch_all("""SELECT st.student_id,st.roll_no,st.name,st.department,st.semester,
+            m.internal_marks,m.external_marks,m.total_marks,m.grade,COALESCE(a.attendance_percentage,0) attendance_percentage
+            FROM student_subjects ss JOIN students st ON st.student_id=ss.student_id
+            LEFT JOIN marks m ON m.student_id=ss.student_id AND m.subject_id=ss.subject_id
+            LEFT JOIN attendance a ON a.student_id=ss.student_id AND a.subject_id=ss.subject_id
+            WHERE ss.subject_id=? ORDER BY st.roll_no COLLATE NOCASE""", (subject_id,))
+
+    def student_academic_records(self, student_id: int) -> list[dict[str, Any]]:
+        return self.db.fetch_all("""SELECT s.subject_code,s.subject_name,s.credits,
+            m.internal_marks,m.external_marks,m.total_marks,m.grade,COALESCE(a.attendance_percentage,0) attendance_percentage
+            FROM student_subjects ss JOIN subjects s ON s.subject_id=ss.subject_id
+            LEFT JOIN marks m ON m.student_id=ss.student_id AND m.subject_id=ss.subject_id
+            LEFT JOIN attendance a ON a.student_id=ss.student_id AND a.subject_id=ss.subject_id
+            WHERE ss.student_id=? ORDER BY s.subject_code COLLATE NOCASE""", (student_id,))
 
     def assign_subject(self, student_id: int, subject_id: int) -> None:
         self.db.execute("INSERT OR IGNORE INTO student_subjects(student_id,subject_id) VALUES(?,?)", (student_id, subject_id))
